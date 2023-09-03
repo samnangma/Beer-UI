@@ -8,7 +8,7 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({Key? key});
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +26,7 @@ class MyApp extends StatelessWidget {
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({Key? key, required this.title});
 
   final String title;
 
@@ -35,14 +35,34 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  Future<List<Beer>> getAllBeers() async {
-    var response = await http.get(Uri.http('api.punkapi.com', '/v2/beers'));
-    if (response.statusCode == 200) {
-      var beers = beerFromJson(response.body);
-      return beers;
-    } else {
-      throw Exception('Could not load beer data ');
+  late Future<List<Beer>> _beersFuture = Future.value([]);
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchBeers();
+  }
+
+  Future<void> _fetchBeers() async {
+    try {
+      var response = await http.get(Uri.http('api.punkapi.com', '/v2/beers'));
+      if (response.statusCode == 200) {
+        var beers = beerFromJson(response.body);
+        setState(() {
+          _beersFuture = Future.value(beers);
+        });
+      } else {
+        throw Exception('Could not load beer data');
+      }
+    } catch (error) {
+      setState(() {
+        _beersFuture = Future.error(error);
+      });
     }
+  }
+
+  Future<void> _refreshPage() async {
+    await _fetchBeers();
   }
 
   @override
@@ -52,13 +72,17 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text('Beer List'),
       ),
       body: Center(
-        child: FutureBuilder(
-          future: getAllBeers(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.done) {
-              if (snapshot.hasData) {
-                var data = snapshot.data as List<Beer>;
-                // final beer = data[index];
+        child: RefreshIndicator(
+          onRefresh: _refreshPage,
+          child: FutureBuilder<List<Beer>>(
+            future: _beersFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const CircularProgressIndicator();
+              } else if (snapshot.hasError) {
+                return Text('Error: ${snapshot.error}');
+              } else if (snapshot.hasData) {
+                var data = snapshot.data!;
                 return ListView.builder(
                   itemCount: data.length,
                   itemBuilder: (context, index) {
@@ -82,8 +106,9 @@ class _MyHomePageState extends State<MyHomePage> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (context) =>
-                                    BeerDetailsPage(beerId: data[index].id)),
+                              builder: (context) =>
+                                  BeerDetailsPage(beerId: data[index].id),
+                            ),
                           );
                         },
                         title: Text(
@@ -102,12 +127,11 @@ class _MyHomePageState extends State<MyHomePage> {
                     );
                   },
                 );
-              } else if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
+              } else {
+                return const Text('No data available');
               }
-            }
-            return const CircularProgressIndicator();
-          },
+            },
+          ),
         ),
       ),
     );
